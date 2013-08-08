@@ -32,7 +32,7 @@ static void __stdcall link_y_to_uv_444(PVideoFrame& dst)
     const int sou = sizeof(unsigned);
     int pitch_y = dst->GetPitch(PLANAR_Y) / sou;
     int pitch_uv = dst->GetPitch(PLANAR_U) / sou;
-    int width = ((dst->GetRowSize(PLANAR_U) + sou - 1) / sou) * sou;
+    int width = (dst->GetRowSize(PLANAR_U) + sou - 1) / sou;
     int height = dst->GetHeight(PLANAR_U);
     const unsigned* y0 = (unsigned*)dst->GetReadPtr(PLANAR_Y);
     unsigned* u0 = (unsigned*)dst->GetWritePtr(PLANAR_U);
@@ -55,7 +55,7 @@ static void __stdcall link_all_444(PVideoFrame& dst)
     const int sou = sizeof(unsigned);
     int pitch_y = dst->GetPitch(PLANAR_Y) / sou;
     int pitch_uv = dst->GetPitch(PLANAR_U) / sou;
-    int width = ((dst->GetRowSize(PLANAR_U) + sou - 1) / sou) * sou;
+    int width = (dst->GetRowSize(PLANAR_U) + sou - 1) / sou;
     int height = dst->GetHeight(PLANAR_U);
     unsigned* y0 = (unsigned*)dst->GetWritePtr(PLANAR_Y);
     unsigned* u0 = (unsigned*)dst->GetWritePtr(PLANAR_U);
