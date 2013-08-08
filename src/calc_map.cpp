@@ -44,7 +44,7 @@ static inline __m128i mm_abs_epi32(__m128i in)
     __m128i temp = _mm_add_epi32(_mm_xor_si128(in, all1),
                                  _mm_srli_epi32(all1, 31));
     return _mm_or_si128(_mm_and_si128(mask, in),
-                        _mm_andnot_si128(mask, temp));
+                         _mm_andnot_si128(mask, temp));
 }
 
 
@@ -52,7 +52,7 @@ static inline __m128i mm_max_epi32(__m128i xmm0, __m128i xmm1)
 {
     __m128i mask = _mm_cmpgt_epi32(xmm0, xmm1);
     return _mm_or_si128(_mm_and_si128(mask, xmm0),
-                        _mm_andnot_si128(mask, xmm1));
+                         _mm_andnot_si128(mask, xmm1));
 }
 
 
@@ -60,7 +60,7 @@ static inline __m128i mm_min_epi32(__m128i xmm0, __m128i xmm1)
 {
     __m128i mask = _mm_cmplt_epi32(xmm0, xmm1);
     return _mm_or_si128(_mm_and_si128(mask, xmm0),
-                        _mm_andnot_si128(mask, xmm1));
+                         _mm_andnot_si128(mask, xmm1));
 }
 
 
@@ -101,7 +101,7 @@ calc_map_1(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
             xmm1 = _mm_loadu_si128((__m128i*)(p1 + x + 1));
             xmm0 = _mm_subs_epu8(_mm_max_epu8(xmm0, xmm1),
                                  _mm_min_epu8(xmm0, xmm1));
-            
+
             xmm1 = _mm_load_si128((__m128i*)(p0 + x));
             xmm2 = _mm_load_si128((__m128i*)(p2 + x));
             xmm1 = _mm_subs_epu8(_mm_max_epu8(xmm1, xmm2),
@@ -149,6 +149,7 @@ calc_map_1(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
     }
 }
 
+
 /*
  (sqrt((Ix*Ix+Iy*Iy)*0.0001)*1.612903)
     = (sqrt(Ix*Ix + Iy*Iy) * 0.01612903)
@@ -195,6 +196,9 @@ calc_map_2(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
     srcp += src_pitch;
     line_copy(p3, srcp, width);
     srcp += src_pitch;
+
+    __declspec(align(16)) int16_t ar_thresh[8];
+    for (int i = 0; i < 8; ar_thresh[i++] = threshold);
 
     for (int y = 0; y < height; y++) {
         line_copy(p4, srcp, width);
@@ -248,7 +252,7 @@ calc_map_2(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
             }
 
             if (threshold > 0) {
-                __m128i xthr = _mm_set1_epi16(threshold);
+                __m128i xthr = _mm_load_si128((__m128i*)ar_thresh);
                 sumx[0] = _mm_packs_epi32(sumx[0], sumx[1]);
                 sumx[1] = _mm_packs_epi32(sumx[2], sumx[3]);
                 sumx[0] = _mm_cmpgt_epi16(sumx[0], xthr);
@@ -257,7 +261,7 @@ calc_map_2(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
                 continue;
             }
 
-            __m128 scale = _mm_set1_ps((float)(255.0 / 158.1 * 0.01));
+            __m128 scale = _mm_load_ps(ar_scale);
             for (int i = 0; i < 4; i++) {
                 sumx[i] = _mm_cvtps_epi32(_mm_mul_ps(scale, _mm_cvtepi32_ps(sumx[i])));
             }
