@@ -45,7 +45,7 @@ invert_plane(uint8_t* d, int dst_pitch, int height)
 
 class TEMmod : public GenericVideoFilter {
     int process[3];
-    int16_t threshold[3];
+    int threshold[3];
     int link;
     bool invert;
     uint8_t* buff;
@@ -64,7 +64,7 @@ public:
 
 TEMmod::TEMmod(PClip c, float thy, float thc, int type, int chroma, int lnk,
                bool inv, IScriptEnvironment* env)
-    : GenericVideoFilter(c), link(lnk), invert(inv)
+    : GenericVideoFilter(c), link(lnk), invert(inv), calc_map(calc_4)
 {
     if (!vi.IsPlanar()) {
         env->ThrowError("TEMmod: Planar format only.");
@@ -79,13 +79,23 @@ TEMmod::TEMmod(PClip c, float thy, float thc, int type, int chroma, int lnk,
 
     for (int i = 0; i < 3; i++) {
         if (type == 1) {
-            threshold[i] = (int16_t)(th[i] * 2 + 0.5);
+            threshold[i] = (int)(th[i] * th[i] * 4 + 0.5);
+        } else if (type == 2) {
+            threshold[i] = (int)(th[i] * th[i] * 10000 + 0.5);
+        } else if (type == 3) {
+            threshold[i] = (int)(th[i] * 2 + 0.5);
         } else {
-            threshold[i] = (int16_t)(th[i] * 100 + 0.5);
+            threshold[i] = (int)(th[i] * 100 / 3.0 + 0.5);
         }
     }
 
-    calc_map = calc_maps[type - 1];
+    if (type == 1) {
+        calc_map = threshold[0] == 0 ? calc_1 : calc_1t;
+    } else if (type == 2) {
+        calc_map = threshold[0] == 0 ? calc_2 : calc_2t;
+    } else if (type == 3) {
+        calc_map = calc_3;
+    }
 
     const link_planes_func* links = link == 1 ? link_y_to_uv : link_all;
     if (vi.IsYV24()) {
@@ -182,9 +192,9 @@ create_temmod(AVSValue args, void* user_data, IScriptEnvironment* env)
         env->ThrowError("TEMmod: threshC must be higher than zero.");
     }
 
-    int type = args[3].AsInt(2);
-    if (type != 1 && type != 2) {
-        env->ThrowError("TEMmod: type must be set to 0 or 1.");
+    int type = args[3].AsInt(4);
+    if (type < 1 && type > 4) {
+        env->ThrowError("TEMmod: type must be set to 1, 2, 3 or 4.");
     }
 
     int link = args[4].AsInt(1);

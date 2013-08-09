@@ -41,8 +41,10 @@ Syntax:
 
             1 - 2 pixel
             2 - 4 pixel
+            3 - 2 pixel (type1 with SSE2, a bit incorrect but faster)
+            4 - 4 pixel (type2 with SSE2, a bit incorrect but faster)
 
-        default: 2 (int)
+        default: 4 (int)
 
     link:
         Specifies whether luma to chroma linking, no linking, or linking of every
