@@ -38,30 +38,14 @@ static inline void line_copy(uint8_t* dstp, const uint8_t* srcp, int width)
 }
 
 
-static inline __m128i mm_abs_epi16(__m128i in)
+static inline __m128i mm_abs_epi16(__m128i xmm0)
 {
-    __m128i all1 = _mm_cmpeq_epi32(in, in);
-    __m128i mask = _mm_cmpgt_epi16(in, _mm_setzero_si128());
-    __m128i temp = _mm_add_epi16(_mm_xor_si128(in, all1),
+    __m128i all1 = _mm_cmpeq_epi32(xmm0, xmm0);
+    __m128i mask = _mm_cmpgt_epi16(xmm0, _mm_setzero_si128());
+    __m128i temp = _mm_add_epi16(_mm_xor_si128(xmm0, all1),
                                  _mm_srli_epi16(all1, 15));
-    return _mm_or_si128(_mm_and_si128(mask, in),
+    return _mm_or_si128(_mm_and_si128(mask, xmm0),
                         _mm_andnot_si128(mask, temp));
-}
-
-
-static inline __m128i mm_max_epi32(__m128i xmm0, __m128i xmm1)
-{
-    __m128i mask = _mm_cmpgt_epi32(xmm0, xmm1);
-    return _mm_or_si128(_mm_and_si128(mask, xmm0),
-                         _mm_andnot_si128(mask, xmm1));
-}
-
-
-static inline __m128i mm_min_epi32(__m128i xmm0, __m128i xmm1)
-{
-    __m128i mask = _mm_cmplt_epi32(xmm0, xmm1);
-    return _mm_or_si128(_mm_and_si128(mask, xmm0),
-                         _mm_andnot_si128(mask, xmm1));
 }
 
 
@@ -153,16 +137,17 @@ calc_map_3(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
 
 
 /*
-    sqrt((Ix*Ix+Iy*Iy)*0.0001)*1.612903
-  = sqrt(Ix*Ix + Iy*Iy) * 0.01612903
-  = (max(abs(Ix),abs(Iy))*15/16 + min(abs(Ix),abs(Iy))*15/32) * 0.01612903
+    sqrt((Ix*Ix+Iy*Iy)*0.0001)*(255.0/158.1)*3
+  = sqrt(Ix*Ix + Iy*Iy) * (255.0/158.1*0.01*3)
+  = (max(abs(Ix),abs(Iy))*15/16 + min(abs(Ix),abs(Iy))*15/32)*(255.0/158.1*0.01*3*(1<<16))>>16
 */
 
-#define SCALE (int16_t)(255.0 / 158.1 * 0.03 * (1 << 16) + 0.5)
+#define SCALE (int16_t)(255.0 / 158.1 * 0.01 * 3 * (1 << 16) + 0.5)
 static const __declspec(align(16)) int16_t ar_scale[] = {SCALE, SCALE, SCALE, SCALE};
 static const __declspec(align(16)) int16_t ar_32767[] = {
     32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767
 };
+// 12:74 -> (int)(12.0/3):(int)(74.0/3+0.5)
 static const __declspec(align(16)) int16_t ar_mulx[][8] = {
     {  4,   4,   4,   4,   4,   4,   4,   4},
     {-25, -25, -25, -25, -25, -25, -25, -25},
@@ -317,7 +302,7 @@ calc_map_1t(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
         for (int x = 1; x < width - 1; x++) {
             int ix = p1[x + 1] - p1[x - 1];
             int iy = p0[x] - p2[x];
-            dstp[x] =  (ix * ix + iy * iy > threshold ? 1 : 0) * 255;
+            dstp[x] =  (ix * ix + iy * iy > threshold) * 255;
         }
         p0 += src_pitch;
         p1 += src_pitch;
@@ -375,7 +360,7 @@ calc_map_2t(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
         for (int x = 2; x < width - 2; x++) {
             int ix = 12 * (p2[x - 2] - p2[x + 2]) + 74 * (p2[x + 1] - p2[x - 1]);
             int iy = 12 * (p4[x] - p0[x]) + 74 * (p1[x] - p3[x]);
-            dstp[x] =  (ix * ix + iy * iy > threshold ? 1 : 0) * 255;
+            dstp[x] =  (ix * ix + iy * iy > threshold) * 255;
         }
         p0 += src_pitch;
         p1 += src_pitch;

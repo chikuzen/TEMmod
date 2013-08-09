@@ -50,6 +50,7 @@ class TEMmod : public GenericVideoFilter {
     bool invert;
     uint8_t* buff;
     int buff_pitch;
+    int type;
 
     calc_map_func calc_map;
     link_planes_func link_planes;
@@ -62,9 +63,9 @@ public:
 };
 
 
-TEMmod::TEMmod(PClip c, float thy, float thc, int type, int chroma, int lnk,
+TEMmod::TEMmod(PClip c, float thy, float thc, int tp, int chroma, int lnk,
                bool inv, IScriptEnvironment* env)
-    : GenericVideoFilter(c), link(lnk), invert(inv), calc_map(calc_4)
+    : GenericVideoFilter(c), link(lnk), invert(inv), type(tp), calc_map(calc_4)
 {
     if (!vi.IsPlanar()) {
         env->ThrowError("TEMmod: Planar format only.");
@@ -146,7 +147,7 @@ PVideoFrame __stdcall TEMmod::GetFrame(int n, IScriptEnvironment* env)
         int width = src->GetRowSize(p);
         const uint8_t* srcp = src->GetReadPtr(p);
 
-        if ((intptr_t)srcp & 15) {
+        if (((intptr_t)srcp & 15) && type > 2) {
             env->ThrowError("TEMmod: invalid memory alignment found!");
         }
 

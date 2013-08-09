@@ -39,10 +39,10 @@ Syntax:
         Sets the type of first order partial derivative approximation that is used.
         possible values:
 
-            1 - 2 pixel
-            2 - 4 pixel
-            3 - 2 pixel (type1 with SSE2, a bit incorrect but faster)
-            4 - 4 pixel (type2 with SSE2, a bit incorrect but faster)
+            1 - 2 pixel (float arithmetic, almost same as original)
+            2 - 4 pixel (float arithmetic, almost same as original)
+            3 - 2 pixel (type1 with SSE2 integer arithmetic, a bit incorrect but faster)
+            4 - 4 pixel (type2 with SSE2 integer arithmetic, a bit incorrect but faster)
 
         default: 4 (int)
 
