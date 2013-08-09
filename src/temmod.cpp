@@ -90,6 +90,10 @@ TEMmod::TEMmod(PClip c, float thy, float thc, int tp, int chroma, int lnk,
         }
     }
 
+    if (threshold[0] == 0 || threshold[1] == 0) {
+        link = 0;
+    }
+
     if (type == 1) {
         calc_map = threshold[0] == 0 ? calc_1 : calc_1t;
     } else if (type == 2) {

@@ -30,7 +30,7 @@
 #include <windows.h>
 #include "avisynth.h"
 
-#define TEMM_VERSION "0.1.0"
+#define TEMM_VERSION "0.1.1"
 
 
 typedef void (__stdcall *calc_map_func)(const uint8_t* srcp, uint8_t* dstp,

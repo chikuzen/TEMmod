@@ -62,7 +62,7 @@ static inline __m128i mm_packus_epi32(__m128i xmm0, __m128i xmm1)
 
 /*
  https://en.wikipedia.org/wiki/Alpha_max_plus_beta_min_algorithm
- sqrt(I*I + Q*Q) -> max(abs(I), abs(Q)) * 15/16 + min(abs(I), abs(Q)) *  15/32
+ sqrt(I*I + Q*Q) -> max(abs(I), abs(Q)) * 15/16 + min(abs(I), abs(Q)) * 15/32
  largest error: 6.25%  mean error: 1.88% ...... not too bad.
 */
 
@@ -143,7 +143,9 @@ calc_map_3(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
 */
 
 #define SCALE (int16_t)(255.0 / 158.1 * 0.01 * 3 * (1 << 16) + 0.5)
-static const __declspec(align(16)) int16_t ar_scale[] = {SCALE, SCALE, SCALE, SCALE};
+static const __declspec(align(16)) int16_t ar_scale[] = {
+    SCALE, SCALE, SCALE, SCALE, SCALE, SCALE, SCALE, SCALE
+};
 static const __declspec(align(16)) int16_t ar_32767[] = {
     32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767
 };
@@ -241,11 +243,9 @@ calc_map_4(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
 
             __m128i scale = _mm_load_si128((__m128i*)ar_scale);
             for (int i = 0; i < 2; i++) {
-                __m128i mull = _mm_mullo_epi16(sumx[i], scale);
-                __m128i mulh = _mm_mulhi_epi16(sumx[i], scale);
-                __m128i t0   = _mm_srli_epi32(_mm_unpacklo_epi16(mull, mulh), 16);
-                __m128i t1   = _mm_srli_epi32(_mm_unpackhi_epi16(mull, mulh), 16);
-                sumx[i] = _mm_packs_epi32(t0, t1);
+                __m128i mull = _mm_madd_epi16(scale, _mm_unpacklo_epi16(sumx[i], zero));
+                __m128i mulh = _mm_madd_epi16(scale, _mm_unpackhi_epi16(sumx[i], zero));
+                sumx[i] = mm_packus_epi32(_mm_srli_epi32(mull, 16), _mm_srli_epi32(mulh, 16));
             }
             _mm_store_si128((__m128i*)(dstp + x), _mm_packus_epi16(sumx[0], sumx[1]));
         }
