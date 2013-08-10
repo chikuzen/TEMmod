@@ -18,7 +18,7 @@ Requirement:
 Syntax:
 
     TEMmod(clip c, float "threshY", float "threshC", int "type", int "link",
-           int "chroma", bool "invert", bool "preblur")
+           int "chroma", bool "invert", bool "preblur", float "scale")
 
 
     threshY:
@@ -43,6 +43,7 @@ Syntax:
             2 - 4 pixel (floating point arithmetic, almost same as original)
             3 - 2 pixel (type1 with SSE2 integer arithmetic, a bit incorrect but faster)
             4 - 4 pixel (type2 with SSE2 integer arithmetic, a bit incorrect but faster)
+            5 - 6 pixel (Sobel operator with SSE2 integer arithmetic)
 
         default: 4 (int)
 
@@ -75,11 +76,16 @@ Syntax:
 
         default: False (bool)
 
+    scale:
+        If output is a magnitude mask(threshY=0), it is scaled by this value.
+        Set this to 0 means output is adjusted automatically and scaled onto
+        0-255 range.
+
+        default: 0
 
 Note:
-    Although the output of this plugin is almost the same as original, it is
-    not completely in agreement since some approximations are used.
-
+    type5 is more edge sensitive than the others.
+    Therefore, you should raise thresholds to others about 150%.
 
 Source code:
     https://github.com/chikuzen/TEMmod/

@@ -37,16 +37,11 @@ typedef void (__stdcall *calc_map_func)(const uint8_t* srcp, uint8_t* dstp,
                                         uint8_t* buff, int src_pitch,
                                         int dst_pitch, int buff_pitch,
                                         int width, int height,
-                                        int threshold);
+                                        int threshold, float scale);
 
 typedef void (__stdcall *link_planes_func)(PVideoFrame& dst);
 
-extern const calc_map_func calc_1;
-extern const calc_map_func calc_1t;
-extern const calc_map_func calc_2;
-extern const calc_map_func calc_2t;
-extern const calc_map_func calc_3;
-extern const calc_map_func calc_4;
+extern const calc_map_func calc_maps[];
 
 extern const link_planes_func link_y_to_uv[];
 

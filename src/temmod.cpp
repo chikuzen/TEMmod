@@ -51,21 +51,22 @@ class TEMmod : public GenericVideoFilter {
     uint8_t* buff;
     int buff_pitch;
     int type;
+    float scale;
 
     calc_map_func calc_map;
     link_planes_func link_planes;
 
 public:
     TEMmod(PClip c, float thy, float thc, int type, int chroma, int link,
-           bool invert, IScriptEnvironment* env);
+           bool invert, float scale, IScriptEnvironment* env);
     ~TEMmod();
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
 };
 
 
 TEMmod::TEMmod(PClip c, float thy, float thc, int tp, int chroma, int lnk,
-               bool inv, IScriptEnvironment* env)
-    : GenericVideoFilter(c), link(lnk), invert(inv), type(tp), calc_map(calc_4)
+               bool inv, float sc, IScriptEnvironment* env)
+    : GenericVideoFilter(c), link(lnk), invert(inv), type(tp), scale(sc)
 {
     if (!vi.IsPlanar()) {
         env->ThrowError("TEMmod: Planar format only.");
@@ -85,8 +86,10 @@ TEMmod::TEMmod(PClip c, float thy, float thc, int tp, int chroma, int lnk,
             threshold[i] = (int)(th[i] * th[i] * 10000 + 0.5);
         } else if (type == 3) {
             threshold[i] = (int)(th[i] * 2 + 0.5);
-        } else {
+        } else if (type == 4) {
             threshold[i] = (int)(th[i] * 100 / 3.0 + 0.5);
+        } else {
+            threshold[i] = (int)(th[i] * 4 + 0.5);
         }
     }
 
@@ -95,11 +98,11 @@ TEMmod::TEMmod(PClip c, float thy, float thc, int tp, int chroma, int lnk,
     }
 
     if (type == 1) {
-        calc_map = threshold[0] == 0 ? calc_1 : calc_1t;
+        calc_map = calc_maps[threshold[0] > 0 ? 1 : 0];
     } else if (type == 2) {
-        calc_map = threshold[0] == 0 ? calc_2 : calc_2t;
-    } else if (type == 3) {
-        calc_map = calc_3;
+        calc_map = calc_maps[2 + (threshold[0] > 0 ? 1 : 0)];
+    } else {
+        calc_map = calc_maps[type + 1];
     }
 
     const link_planes_func* links = link == 1 ? link_y_to_uv : link_all;
@@ -156,7 +159,7 @@ PVideoFrame __stdcall TEMmod::GetFrame(int n, IScriptEnvironment* env)
         }
 
         calc_map(srcp, dstp, buff, src_pitch, dst_pitch, buff_pitch,
-                 width, height, threshold[i]);
+                 width, height, threshold[i], scale);
 
     }
 
@@ -198,8 +201,8 @@ create_temmod(AVSValue args, void* user_data, IScriptEnvironment* env)
     }
 
     int type = args[3].AsInt(4);
-    if (type < 1 && type > 4) {
-        env->ThrowError("TEMmod: type must be set to 1, 2, 3 or 4.");
+    if (type < 1 && type > 5) {
+        env->ThrowError("TEMmod: type must be between 1 and 5.");
     }
 
     int link = args[4].AsInt(1);
@@ -219,14 +222,19 @@ create_temmod(AVSValue args, void* user_data, IScriptEnvironment* env)
         }
     }
 
-    return new TEMmod(clip, thy, thc, type, chroma, link, invert, env);
+    float scale = args[8].AsFloat(0);
+    if (scale < 0) {
+        env->ThrowError("TEMmod: scale must be higher than zero.");
+    }
+
+    return new TEMmod(clip, thy, thc, type, chroma, link, invert, scale, env);
 }
 extern "C" __declspec(dllexport) const char* __stdcall
 AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors)
 {
     AVS_linkage = vectors;
     env->AddFunction("TEMmod",
-                     "c[threshY]f[threshC]f[type]i[link]i[chroma]i[invert]b"
-                     "[preblur]b", create_temmod, 0);
+                    "c[threshY]f[threshC]f[type]i[link]i[chroma]i"
+                    "[invert]b[preblur]b[scale]f", create_temmod, 0);
     return "TEdgeMask_modified for aisynth2.6 ver." TEMM_VERSION;
 }

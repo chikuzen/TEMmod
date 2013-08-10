@@ -71,7 +71,8 @@ static const __declspec(align(16)) int16_t fifteens[8] = {15, 15, 15, 15,
 
 static void __stdcall
 calc_map_3(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
-           int dst_pitch, int buff_pitch, int width, int height, int threshold)
+           int dst_pitch, int buff_pitch, int width, int height,
+           int threshold, float sc)
 {
     uint8_t* p0 = buff + 16;
     uint8_t* p1 = p0 + buff_pitch;
@@ -83,9 +84,12 @@ calc_map_3(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
     line_copy(p1, srcp, width);
     srcp += src_pitch;
 
+    int16_t scale = sc > 0 ? (int16_t)(sc * (1 << 8) + 0.5) : 1 << 8;
     __declspec(align(16)) int16_t ar_thresh[8];
+    __declspec(align(16)) int16_t ar_scale[8];
     for (int i = 0; i < 8; i++) {
         ar_thresh[i] = (int16_t)threshold;
+        ar_scale[i] = scale;
     }
 
     for (int y = 0; y < height; y++) {
@@ -118,6 +122,13 @@ calc_map_3(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
             xmm1 = _mm_adds_epu16(xmm1, xmm3);
 
             if (threshold == 0) {
+                __m128i xscale = _mm_load_si128((__m128i*)ar_scale);
+                __m128i t0 = _mm_madd_epi16(xscale, _mm_unpacklo_epi16(xmm0, zero));
+                __m128i t1 = _mm_madd_epi16(xscale, _mm_unpackhi_epi16(xmm0, zero));
+                xmm0 = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
+                t0 = _mm_madd_epi16(xscale, _mm_unpacklo_epi16(xmm1, zero));
+                t1 = _mm_madd_epi16(xscale, _mm_unpackhi_epi16(xmm1, zero));
+                xmm1 = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
                 _mm_store_si128((__m128i*)(dstp + x), _mm_packus_epi16(xmm0, xmm1));
                 continue;
             }
@@ -142,10 +153,6 @@ calc_map_3(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
   = (max(abs(Ix),abs(Iy))*15/16 + min(abs(Ix),abs(Iy))*15/32)*(255.0/158.1*0.01*3*(1<<16))>>16
 */
 
-#define SCALE (int16_t)(255.0 / 158.1 * 0.01 * 3 * (1 << 16) + 0.5)
-static const __declspec(align(16)) int16_t ar_scale[] = {
-    SCALE, SCALE, SCALE, SCALE, SCALE, SCALE, SCALE, SCALE
-};
 static const __declspec(align(16)) int16_t ar_32767[] = {
     32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767
 };
@@ -166,7 +173,8 @@ static const __declspec(align(16)) int16_t ar_muly[][8] = {
 
 static void __stdcall
 calc_map_4(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
-           int dst_pitch, int buff_pitch, int width, int height, int threshold)
+           int dst_pitch, int buff_pitch, int width, int height,
+           int threshold, float sc)
 {
     uint8_t* p0 = buff + 16;
     uint8_t* p1 = p0 + buff_pitch;
@@ -183,8 +191,14 @@ calc_map_4(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
     line_copy(p3, srcp, width);
     srcp += src_pitch;
 
+    int16_t scale = sc > 0 ? (int16_t)(sc * 0.01 * 3 * (1 << 16) + 0.5) :
+                             (int16_t)(255.0 / 158.1 * 0.01 * 3 * (1 << 16) + 0.5);
     __declspec(align(16)) int16_t ar_thresh[8];
-    for (int i = 0; i < 8; ar_thresh[i++] = threshold - 32767);
+    __declspec(align(16)) int16_t ar_scale[8];
+    for (int i = 0; i < 8; i++) {
+        ar_thresh[i] = threshold - 32767;
+        ar_scale[i] = scale;
+    }
 
     for (int y = 0; y < height; y++) {
         line_copy(p4, srcp, width);
@@ -259,15 +273,147 @@ calc_map_4(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
     }
 }
 
+/* generic Sobel edge detection */
+static void __stdcall
+calc_map_5(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
+           int dst_pitch, int buff_pitch, int width, int height,
+           int threshold, float sc)
+{
+    uint8_t* p0 = buff + 16;
+    uint8_t* p1 = p0 + buff_pitch;
+    uint8_t* p2 = p1 + buff_pitch;
+    uint8_t* orig = p0;
+    uint8_t* end = p2;
+
+    line_copy(p0, srcp, width);
+    line_copy(p1, srcp, width);
+    srcp += src_pitch;
+
+    int16_t scale = (int16_t)((sc > 0 ? sc : 0.25) * (1 << 8) + 0.5);
+
+    __declspec(align(16)) int16_t ar_thresh[8];
+    __declspec(align(16)) int16_t ar_scale[8];
+    for (int i = 0; i < 8; i++) {
+        ar_thresh[i] = (int16_t)threshold;
+        ar_scale[i] = scale;
+    }
+
+    for (int y = 0; y < height; y++) {
+        line_copy(p2, srcp, width);
+        uint8_t *array[][6] = {
+            /*  -1      -1       -2       1       1       2   */
+            { p0 - 1, p2 - 1, p1 - 1, p0 + 1, p2 + 1, p1 + 1 },
+            { p0 - 1, p0 + 1, p0    , p2 - 1, p2 + 1, p2     }
+        };
+
+        for (int x = 0; x < width; x += 16) {
+            __m128i zero = _mm_setzero_si128();
+            __m128i sumlo[2], sumhi[2];
+
+            sumlo[1] = _mm_loadu_si128((__m128i *)(p0 + x - 1));
+            sumlo[0] = _mm_unpacklo_epi8(sumlo[1], zero);
+            sumhi[0] = _mm_unpackhi_epi8(sumlo[1], zero);
+            sumlo[1] = sumlo[0];
+            sumhi[1] = sumhi[0];
+
+            for (int i = 0; i < 2; i++) {
+                __m128i xmm0, xmm1, all1, one;
+
+                xmm0 = _mm_loadu_si128((__m128i *)(array[i][1] + x));
+                xmm1 = _mm_unpackhi_epi8(xmm0, zero);
+                xmm0 = _mm_unpacklo_epi8(xmm0, zero);
+                sumlo[i] = _mm_add_epi16(sumlo[i], xmm0);
+                sumhi[i] = _mm_add_epi16(sumhi[i], xmm1);
+
+                xmm0 = _mm_loadu_si128((__m128i *)(array[i][2] + x));
+                xmm1 = _mm_slli_epi16(_mm_unpackhi_epi8(xmm0, zero), 1);
+                xmm0 = _mm_slli_epi16(_mm_unpacklo_epi8(xmm0, zero), 1);
+                sumlo[i] = _mm_add_epi16(sumlo[i], xmm0);
+                sumhi[i] = _mm_add_epi16(sumhi[i], xmm1);
+
+                // -x - y - 2z = (x + y + 2z) * -1
+                all1 = _mm_cmpeq_epi32(xmm0, xmm0);
+                one = _mm_srli_epi16(xmm0, 15);
+                sumlo[i] = _mm_add_epi16(one, _mm_xor_si128(sumlo[i], all1));
+                sumhi[i] = _mm_add_epi16(one, _mm_xor_si128(sumhi[i], all1));
+
+                xmm0 = _mm_loadu_si128((__m128i *)(array[i][3] + x));
+                xmm1 = _mm_unpackhi_epi8(xmm0, zero);
+                xmm0 = _mm_unpacklo_epi8(xmm0, zero);
+                sumlo[i] = _mm_add_epi16(sumlo[i], xmm0);
+                sumhi[i] = _mm_add_epi16(sumhi[i], xmm1);
+
+                xmm0 = _mm_loadu_si128((__m128i *)(array[i][4] + x));
+                xmm1 = _mm_unpackhi_epi8(xmm0, zero);
+                xmm0 = _mm_unpacklo_epi8(xmm0, zero);
+                sumlo[i] = _mm_add_epi16(sumlo[i], xmm0);
+                sumhi[i] = _mm_add_epi16(sumhi[i], xmm1);
+
+                xmm0 = _mm_loadu_si128((__m128i *)(array[i][5] + x));
+                xmm1 = _mm_slli_epi16(_mm_unpackhi_epi8(xmm0, zero), 1);
+                xmm0 = _mm_slli_epi16(_mm_unpacklo_epi8(xmm0, zero), 1);
+                sumlo[i] = _mm_add_epi16(sumlo[i], xmm0);
+                sumhi[i] = _mm_add_epi16(sumhi[i], xmm1);
+
+                xmm0 = _mm_add_epi16(one, _mm_xor_si128(sumlo[i], all1));
+                sumlo[i] = _mm_or_si128(_mm_max_epi16(sumlo[i], zero),
+                                        _mm_max_epi16(xmm0, zero));
+
+                xmm0 = _mm_add_epi16(one, _mm_xor_si128(sumhi[i], all1));
+                sumhi[i] = _mm_or_si128(_mm_max_epi16(sumhi[i], zero),
+                                        _mm_max_epi16(xmm0, zero));
+            }
+
+            __m128i xmul = _mm_load_si128((__m128i *)fifteens);
+
+            __m128i maxlh = _mm_max_epi16(sumlo[0], sumlo[1]);
+            __m128i minlh = _mm_min_epi16(sumlo[0], sumlo[1]);
+            maxlh = _mm_srli_epi16(_mm_mullo_epi16(maxlh, xmul), 4);
+            minlh = _mm_srli_epi16(_mm_mullo_epi16(minlh, xmul), 5);
+            __m128i outlo = _mm_add_epi16(maxlh, minlh);
+
+            maxlh = _mm_max_epi16(sumhi[0], sumhi[1]);
+            minlh = _mm_min_epi16(sumhi[0], sumhi[1]);
+            maxlh = _mm_srli_epi16(_mm_mullo_epi16(maxlh, xmul), 4);
+            minlh = _mm_srli_epi16(_mm_mullo_epi16(minlh, xmul), 5);
+            __m128i outhi = _mm_add_epi16(maxlh, minlh);
+
+            if (threshold == 0) {
+                xmul = _mm_load_si128((__m128i*)ar_scale);
+                __m128i t0 = _mm_madd_epi16(xmul, _mm_unpacklo_epi16(outlo, zero));
+                __m128i t1 = _mm_madd_epi16(xmul, _mm_unpackhi_epi16(outlo, zero));
+                outlo = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
+                t0 = _mm_madd_epi16(xmul, _mm_unpacklo_epi16(outhi, zero));
+                t1 = _mm_madd_epi16(xmul, _mm_unpackhi_epi16(outhi, zero));
+                outhi = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
+                outlo = _mm_packus_epi16(outlo, outhi);
+                _mm_store_si128((__m128i*)(dstp + x), outlo);
+                continue;
+            }
+
+            __m128i xthr = _mm_load_si128((__m128i*)ar_thresh);
+            outlo = _mm_cmpgt_epi16(outlo, xthr);
+            outhi = _mm_cmpgt_epi16(outhi, xthr);
+            _mm_store_si128((__m128i*)(dstp + x), _mm_packs_epi16(outlo, outhi));
+        }
+        p0 = p1;
+        p1 = p2;
+        p2 = p2 == end ? orig : p2 + buff_pitch;
+        dstp += dst_pitch;
+        srcp += src_pitch * (y < height - 2 ? 1 : 0);
+    }
+}
+
 
 static void __stdcall
 calc_map_1(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
-           int dst_pitch, int buff_pitch, int width, int height, int threshold)
+           int dst_pitch, int buff_pitch, int width, int height,
+           int threshold, float sc)
 {
     const uint8_t *p0 = srcp;
     const uint8_t *p1 = p0 + src_pitch;
     const uint8_t *p2 = p1 + src_pitch;
-    const float scale = (float)(255.0 / 127.5);
+    const float scale = sc > 0 ? sc : (float)(255.0 / 127.5);
 
     memset(dstp, 0, dst_pitch);
     dstp += dst_pitch;
@@ -290,7 +436,8 @@ calc_map_1(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
 
 static void __stdcall
 calc_map_1t(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
-            int dst_pitch, int buff_pitch, int width, int height, int threshold)
+            int dst_pitch, int buff_pitch, int width, int height,
+            int threshold, float scale)
 {
     const uint8_t *p0 = srcp;
     const uint8_t *p1 = p0 + src_pitch;
@@ -315,14 +462,15 @@ calc_map_1t(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
 
 static void __stdcall
 calc_map_2(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
-            int dst_pitch, int buff_pitch, int width, int height, int threshold)
+            int dst_pitch, int buff_pitch, int width, int height,
+            int threshold, float sc)
 {
     const uint8_t *p0 = srcp;
     const uint8_t *p1 = p0 + src_pitch;
     const uint8_t *p2 = p1 + src_pitch;
     const uint8_t *p3 = p2 + src_pitch;
     const uint8_t *p4 = p3 + src_pitch;
-    const float scale = (float)(255.0 / 158.1);
+    const float scale = sc > 0 ? sc : (float)(255.0 / 158.1);
 
     memset(dstp, 0, dst_pitch * 2);
     dstp += 2 * dst_pitch;
@@ -346,7 +494,8 @@ calc_map_2(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
 
 static void __stdcall
 calc_map_2t(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
-            int dst_pitch, int buff_pitch, int width, int height, int threshold)
+            int dst_pitch, int buff_pitch, int width, int height,
+            int threshold, float scale)
 {
     const uint8_t *p0 = srcp;
     const uint8_t *p1 = p0 + src_pitch;
@@ -372,9 +521,10 @@ calc_map_2t(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
     memset(dstp, 0, dst_pitch * 2);
 }
 
-const calc_map_func calc_1 = calc_map_1;
-const calc_map_func calc_1t = calc_map_1t;
-const calc_map_func calc_2 = calc_map_2;
-const calc_map_func calc_2t = calc_map_2t;
-const calc_map_func calc_3 = calc_map_3;
-const calc_map_func calc_4 = calc_map_4;
+const calc_map_func calc_maps[] = {
+    calc_map_1, calc_map_1t,
+    calc_map_2, calc_map_2t,
+    calc_map_3,
+    calc_map_4,
+    calc_map_5
+};
