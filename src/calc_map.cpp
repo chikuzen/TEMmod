@@ -25,8 +25,8 @@
 
 #include <string.h>
 #include <math.h>
-#include <emmintrin.h>
 #include "temmod.h"
+#include "simd.h"
 
 static inline void line_copy(uint8_t* dstp, const uint8_t* srcp, int width)
 {
@@ -35,28 +35,6 @@ static inline void line_copy(uint8_t* dstp, const uint8_t* srcp, int width)
     dstp[-2] = dstp[0];
     dstp[width] = dstp[width - 1];
     dstp[width + 1] = dstp[width - 1];
-}
-
-
-static inline __m128i mm_abs_epi16(__m128i xmm0)
-{
-    __m128i all1 = _mm_cmpeq_epi32(xmm0, xmm0);
-    __m128i mask = _mm_cmpgt_epi16(xmm0, _mm_setzero_si128());
-    __m128i temp = _mm_add_epi16(_mm_xor_si128(xmm0, all1),
-                                 _mm_srli_epi16(all1, 15));
-    return _mm_or_si128(_mm_and_si128(mask, xmm0),
-                        _mm_andnot_si128(mask, temp));
-}
-
-
-static inline __m128i mm_packus_epi32(__m128i xmm0, __m128i xmm1)
-{
-    __m128i lo = _mm_shufflelo_epi16(xmm0, _MM_SHUFFLE(3, 1, 2, 0));
-    lo = _mm_shufflehi_epi16(lo, _MM_SHUFFLE(3, 1, 2, 0));
-    __m128i hi = _mm_shufflelo_epi16(xmm1, _MM_SHUFFLE(2, 0, 3, 1));
-    hi = _mm_shufflehi_epi16(hi, _MM_SHUFFLE(2, 0, 3, 1));
-    lo = _mm_or_si128(lo, hi);
-    return _mm_shuffle_epi32(lo, _MM_SHUFFLE(3, 1, 2, 0));
 }
 
 
@@ -84,59 +62,47 @@ calc_map_3(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
     line_copy(p1, srcp, width);
     srcp += src_pitch;
 
-    int16_t scale = sc > 0 ? (int16_t)(sc * (1 << 8) + 0.5) : 1 << 8;
-    __declspec(align(16)) int16_t ar_thresh[8];
-    __declspec(align(16)) int16_t ar_scale[8];
-    for (int i = 0; i < 8; i++) {
-        ar_thresh[i] = (int16_t)threshold;
-        ar_scale[i] = scale;
+    __m128i xscth;
+    if (threshold == 0) {
+        int16_t scale = sc > 0 ? (int16_t)(sc * (1 << 8) + 0.5) : 1 << 8;
+        xscth = _mm_set1_epi16(scale);
+    } else {
+        xscth = _mm_set1_epi16(static_cast<int16_t>(threshold));
     }
+
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i ab = _mm_set1_epi16(15);
 
     for (int y = 0; y < height; y++) {
         line_copy(p2, srcp, width);
         for (int x = 0; x < width; x += 16) {
-            __m128i xmm0, xmm1, xmm2, xmm3, xmax, xmin, ab, zero;
+            __m128i xmm0 = absdiff_u8(loadu(p1 + x - 1), loadu(p1 + x + 1));
+            __m128i xmm1 = absdiff_u8(load(p0 + x), load(p2 + x));
 
-            xmm0 = _mm_loadu_si128((__m128i*)(p1 + x - 1));
-            xmm1 = _mm_loadu_si128((__m128i*)(p1 + x + 1));
-            xmm0 = _mm_subs_epu8(_mm_max_epu8(xmm0, xmm1),
-                                 _mm_min_epu8(xmm0, xmm1));
+            __m128i xmax = max_u8(xmm0, xmm1);
+            __m128i xmin = min_u8(xmm0, xmm1);
 
-            xmm1 = _mm_load_si128((__m128i*)(p0 + x));
-            xmm2 = _mm_load_si128((__m128i*)(p2 + x));
-            xmm1 = _mm_subs_epu8(_mm_max_epu8(xmm1, xmm2),
-                                 _mm_min_epu8(xmm1, xmm2));
-
-            xmax = _mm_max_epu8(xmm0, xmm1);
-            xmin = _mm_min_epu8(xmm0, xmm1);
-
-            zero = _mm_setzero_si128();
-            ab = _mm_load_si128((__m128i*)fifteens);
-
-            xmm0 = _mm_srli_epi16(_mm_mullo_epi16(ab, _mm_unpacklo_epi8(xmax, zero)), 4);
-            xmm1 = _mm_srli_epi16(_mm_mullo_epi16(ab, _mm_unpackhi_epi8(xmax, zero)), 4);
-            xmm2 = _mm_srli_epi16(_mm_mullo_epi16(ab, _mm_unpacklo_epi8(xmin, zero)), 5);
-            xmm3 = _mm_srli_epi16(_mm_mullo_epi16(ab, _mm_unpackhi_epi8(xmin, zero)), 5);
+            xmm0 = rshift_i16(mullo_i16(ab, unpacklo_i8(xmax, zero)), 4);
+            xmm1 = rshift_i16(mullo_i16(ab, unpackhi_i8(xmax, zero)), 4);
+            __m128i t0 = rshift_i16(mullo_i16(ab, unpacklo_i8(xmin, zero)), 5);
+            __m128i t1 = rshift_i16(mullo_i16(ab, unpackhi_i8(xmin, zero)), 5);
             
-            xmm0 = _mm_adds_epu16(xmm0, xmm2);
-            xmm1 = _mm_adds_epu16(xmm1, xmm3);
+            xmm0 = _mm_adds_epu16(xmm0, t0);
+            xmm1 = _mm_adds_epu16(xmm1, t1);
 
-            if (threshold == 0) {
-                __m128i xscale = _mm_load_si128((__m128i*)ar_scale);
-                __m128i t0 = _mm_madd_epi16(xscale, _mm_unpacklo_epi16(xmm0, zero));
-                __m128i t1 = _mm_madd_epi16(xscale, _mm_unpackhi_epi16(xmm0, zero));
-                xmm0 = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
-                t0 = _mm_madd_epi16(xscale, _mm_unpacklo_epi16(xmm1, zero));
-                t1 = _mm_madd_epi16(xscale, _mm_unpackhi_epi16(xmm1, zero));
-                xmm1 = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
-                _mm_store_si128((__m128i*)(dstp + x), _mm_packus_epi16(xmm0, xmm1));
+            if (threshold != 0) {
+                xmm0 = cmpgt_i16(xmm0, xscth);
+                xmm1 = cmpgt_i16(xmm1, xscth);
+                store(dstp + x, packs_i16(xmm0, xmm1));
                 continue;
             }
-
-            __m128i xthr = _mm_load_si128((__m128i*)ar_thresh);
-            xmm0 = _mm_cmpgt_epi16(xmm0, xthr);
-            xmm1 = _mm_cmpgt_epi16(xmm1, xthr);
-            _mm_store_si128((__m128i*)(dstp + x), _mm_packs_epi16(xmm0, xmm1));
+            t0 = madd_i16(xscth, unpacklo_i16(xmm0, zero));
+            t1 = madd_i16(xscth, unpackhi_i16(xmm0, zero));
+            xmm0 = packus_i32(rshift_i32(t0, 8), rshift_i32(t1, 8));
+            t0 = madd_i16(xscth, unpacklo_i16(xmm1, zero));
+            t1 = madd_i16(xscth, unpackhi_i16(xmm1, zero));
+            xmm1 = packus_i32(rshift_i32(t0, 8), rshift_i32(t1, 8));
+            store(dstp + x, packus_i16(xmm0, xmm1));
         }
         p0 = p1;
         p1 = p2;
@@ -230,18 +196,18 @@ calc_map_4(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
             __m128i ab = _mm_load_si128((__m128i*)fifteens);
             for (int i = 0; i < 2; i++) {
                 __m128i max, min, mull, mulh;
-                sumx[i] = mm_abs_epi16(sumx[i]);
-                sumy[i] = mm_abs_epi16(sumy[i]);
+                sumx[i] = abs_i16(sumx[i]);
+                sumy[i] = abs_i16(sumy[i]);
                 max = _mm_max_epi16(sumx[i], sumy[i]);
                 min = _mm_min_epi16(sumx[i], sumy[i]);
 
                 mull = _mm_srli_epi32(_mm_madd_epi16(ab, _mm_unpacklo_epi16(max, zero)), 4);
                 mulh = _mm_srli_epi32(_mm_madd_epi16(ab, _mm_unpackhi_epi16(max, zero)), 4);
-                max = mm_packus_epi32(mull, mulh);
+                max = packus_i32(mull, mulh);
 
                 mull = _mm_srli_epi32(_mm_madd_epi16(ab, _mm_unpacklo_epi16(min, zero)), 5);
                 mulh = _mm_srli_epi32(_mm_madd_epi16(ab, _mm_unpackhi_epi16(min, zero)), 5);
-                min = mm_packus_epi32(mull, mulh);
+                min = packus_i32(mull, mulh);
 
                 sumx[i] = _mm_adds_epu16(max, min);
             }
@@ -259,7 +225,7 @@ calc_map_4(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
             for (int i = 0; i < 2; i++) {
                 __m128i mull = _mm_madd_epi16(scale, _mm_unpacklo_epi16(sumx[i], zero));
                 __m128i mulh = _mm_madd_epi16(scale, _mm_unpackhi_epi16(sumx[i], zero));
-                sumx[i] = mm_packus_epi32(_mm_srli_epi32(mull, 16), _mm_srli_epi32(mulh, 16));
+                sumx[i] = packus_i32(_mm_srli_epi32(mull, 16), _mm_srli_epi32(mulh, 16));
             }
             _mm_store_si128((__m128i*)(dstp + x), _mm_packus_epi16(sumx[0], sumx[1]));
         }
@@ -382,10 +348,10 @@ calc_map_5(const uint8_t* srcp, uint8_t* dstp, uint8_t* buff, int src_pitch,
                 xmul = _mm_load_si128((__m128i*)ar_scale);
                 __m128i t0 = _mm_madd_epi16(xmul, _mm_unpacklo_epi16(outlo, zero));
                 __m128i t1 = _mm_madd_epi16(xmul, _mm_unpackhi_epi16(outlo, zero));
-                outlo = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
+                outlo = packus_i32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
                 t0 = _mm_madd_epi16(xmul, _mm_unpacklo_epi16(outhi, zero));
                 t1 = _mm_madd_epi16(xmul, _mm_unpackhi_epi16(outhi, zero));
-                outhi = mm_packus_epi32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
+                outhi = packus_i32(_mm_srli_epi32(t0, 8), _mm_srli_epi32(t1, 8));
                 outlo = _mm_packus_epi16(outlo, outhi);
                 _mm_store_si128((__m128i*)(dstp + x), outlo);
                 continue;

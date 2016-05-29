@@ -27,10 +27,14 @@
 #define TEMMOD_H
 
 #include <stdint.h>
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#define NOMINMAX
+#define NOGDI
 #include <windows.h>
-#include "avisynth.h"
+#include <avisynth.h>
 
-#define TEMM_VERSION "0.2.0"
+#define TEMM_VERSION "0.2.1"
 
 
 typedef void (__stdcall *calc_map_func)(const uint8_t* srcp, uint8_t* dstp,

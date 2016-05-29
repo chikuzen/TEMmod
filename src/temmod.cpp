@@ -28,9 +28,6 @@
 #include "temmod.h"
 
 
-const AVS_Linkage* AVS_linkage = 0;
-
-
 static void __stdcall
 invert_plane(uint8_t* d, int dst_pitch, int height)
 {
@@ -57,14 +54,14 @@ class TEMmod : public GenericVideoFilter {
     link_planes_func link_planes;
 
 public:
-    TEMmod(PClip c, float thy, float thc, int type, int chroma, int link,
+    TEMmod(PClip c, double thy, double thc, int type, int chroma, int link,
            bool invert, float scale, IScriptEnvironment* env);
     ~TEMmod();
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
 };
 
 
-TEMmod::TEMmod(PClip c, float thy, float thc, int tp, int chroma, int lnk,
+TEMmod::TEMmod(PClip c, double thy, double thc, int tp, int chroma, int lnk,
                bool inv, float sc, IScriptEnvironment* env)
     : GenericVideoFilter(c), link(lnk), invert(inv), type(tp), scale(sc)
 {
@@ -76,22 +73,25 @@ TEMmod::TEMmod(PClip c, float thy, float thc, int tp, int chroma, int lnk,
         chroma = 0;
     }
 
-    process[0] = 1; process[1] = chroma; process[2] = chroma;
-    float th[3] = {thy, thc, thc};
+    process[0] = 1; process[1] = process[2] = chroma;
 
-    for (int i = 0; i < 3; i++) {
+    double th[] = {thy, thc};
+    for (int i = 0; i < 2; i++) {
+        double d;
         if (type == 1) {
-            threshold[i] = (int)(th[i] * th[i] * 4 + 0.5);
+            d = th[i] * th[i] * 4 + 0.5;
         } else if (type == 2) {
-            threshold[i] = (int)(th[i] * th[i] * 10000 + 0.5);
+            d = th[i] * th[i] * 10000 + 0.5;
         } else if (type == 3) {
-            threshold[i] = (int)(th[i] * 2 + 0.5);
+            d = th[i] * 2 + 0.5;
         } else if (type == 4) {
-            threshold[i] = (int)(th[i] * 100 / 3.0 + 0.5);
+            d = th[i] * 100 / 3.0 + 0.5;
         } else {
-            threshold[i] = (int)(th[i] * 4 + 0.5);
+            d = th[i] * 4 + 0.5;
         }
+        threshold[i] = static_cast<int>(d);
     }
+    threshold[2] = threshold[1];
 
     if (threshold[0] == 0 || threshold[1] == 0) {
         link = 0;
@@ -186,7 +186,7 @@ PVideoFrame __stdcall TEMmod::GetFrame(int n, IScriptEnvironment* env)
 AVSValue __cdecl
 create_temmod(AVSValue args, void* user_data, IScriptEnvironment* env)
 {
-    float thy = args[1].AsFloat(8.0);
+    double thy = args[1].AsFloat(8.0);
     if (thy < 0) {
         env->ThrowError("TEMmod: threshY must be higher than zero.");
     }
@@ -195,7 +195,7 @@ create_temmod(AVSValue args, void* user_data, IScriptEnvironment* env)
     if (chroma < 0 || chroma > 2) {
         env->ThrowError("TEMmod: chroma must be set to 0, 1, or 2.");
     }
-    float thc = args[2].AsFloat(8.0);
+    double thc = args[2].AsFloat(8.0);
     if (chroma == 1 && thc < 0) {
         env->ThrowError("TEMmod: threshC must be higher than zero.");
     }
@@ -222,19 +222,25 @@ create_temmod(AVSValue args, void* user_data, IScriptEnvironment* env)
         }
     }
 
-    float scale = args[8].AsFloat(0);
-    if (scale < 0) {
+    float scale = static_cast<float>(args[8].AsFloat(0.0));
+    if (scale < 0.0f) {
         env->ThrowError("TEMmod: scale must be higher than zero.");
     }
 
     return new TEMmod(clip, thy, thc, type, chroma, link, invert, scale, env);
 }
+
+
+const AVS_Linkage* AVS_linkage = nullptr;
+
+
 extern "C" __declspec(dllexport) const char* __stdcall
 AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors)
 {
     AVS_linkage = vectors;
     env->AddFunction("TEMmod",
                     "c[threshY]f[threshC]f[type]i[link]i[chroma]i"
-                    "[invert]b[preblur]b[scale]f", create_temmod, 0);
+                    "[invert]b[preblur]b[scale]f", create_temmod, nullptr);
+
     return "TEdgeMask_modified for aisynth2.6 ver." TEMM_VERSION;
 }
